@@ -1,22 +1,28 @@
 import time
 import board
 import busio
+import numpy as np
 from adafruit_pca9685 import PCA9685
 from adafruit_motor import servo
-import math
 
 # Initialize I2C bus and PCA9685 module
 i2c = busio.I2C(board.SCL, board.SDA)
 pca = PCA9685(i2c)
 pca.frequency = 50
 
-# Initialize the servos
-servo_roll = servo.Servo(pca.channels[4])
-servo_pitch = servo.Servo(pca.channels[6])
+# Initialize the pitch servo on its respective channel
+servo_pitch = servo.Servo(pca.channels[6])  # Adjust the channel number if necessary
 
-# Link lengths in mm
-L4 = 30  # roll to pitch
-L5 = 120  # pitch to gripper end
+# Define the pitch angles and corresponding heights
+angles = np.array([0, 25, 50, 100])
+heights = np.array([105, 60, 25, 0])
+
+# Interpolation function to get pitch angle for a given z height
+def get_pitch_angle(z):
+    if z > 105 or z < 0:
+        print("Z value out of range")
+        return None
+    return np.interp(z, heights[::-1], angles[::-1])
 
 # Function to smoothly move the servos
 def move_servo_smooth(servo_motor, target_angle, step_delay=0.02):
@@ -33,39 +39,21 @@ def move_servo_smooth(servo_motor, target_angle, step_delay=0.02):
     
     servo_motor.angle = target_angle
 
-# Calculate the pitch angle for the desired z-coordinate (height)
-def calculate_pitch_angle(z):
-    # Ensure the requested z value is achievable within the limits
-    if z > (L4 + L5):
-        print(f"z is too high, max achievable is {L4 + L5} mm.")
-        return None
-    if z < L4:
-        print(f"z is too low, min achievable is {L4} mm.")
-        return None
-    
-    # Calculate the pitch angle using inverse kinematics
-    pitch_angle = math.degrees(math.acos((z - L4) / L5))
-    
-    return pitch_angle
-
-# Function to move the arm to a desired z height
-def move_gripper_to_height(z):
-    pitch_angle = calculate_pitch_angle(z)
+# Main function to set the desired height
+def set_height(z):
+    pitch_angle = get_pitch_angle(z)
     
     if pitch_angle is not None:
-        print(f"Moving to height: {z} mm, calculated pitch angle: {pitch_angle:.2f} degrees")
+        print(f"Setting pitch angle to: {pitch_angle:.2f} degrees for z = {z} mm")
         move_servo_smooth(servo_pitch, pitch_angle)
-        time.sleep(2)
+        time.sleep(1)  # Wait for the servo to reach the position
     else:
-        print("Cannot move to the specified height.")
+        print("Could not set the pitch angle due to out of range value.")
 
-# Main execution
+# Example usage
 if __name__ == "__main__":
-    try:
-        # Example: Move the gripper to a height of 50 mm
-        move_gripper_to_height(50)
-        
-    except KeyboardInterrupt:
-        print("\nProcess interrupted.")
-    finally:
-        pca.deinit()
+    desired_z = 50  # Change this value to the desired height
+    set_height(desired_z)
+
+    # Clean up
+    pca.deinit()
