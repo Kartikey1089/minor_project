@@ -11,18 +11,19 @@ pca = PCA9685(i2c)
 pca.frequency = 50
 
 # Initialize the servos
-servo_roll = servo.Servo(pca.channels[3])  # Roll servo
-servo_pitch = servo.Servo(pca.channels[4])  # Pitch servo
+servo_roll = servo.Servo(pca.channels[4])
+servo_pitch = servo.Servo(pca.channels[6])
 
-# Link lengths (in mm)
-link_roll_to_pitch = 30  # Roll to pitch link length
-link_pitch_to_gripper = 120  # Pitch to gripper end link length
+# Link lengths in mm
+L4 = 30  # roll to pitch
+L5 = 120  # pitch to gripper end
 
-# Smooth movement function
+# Function to smoothly move the servos
 def move_servo_smooth(servo_motor, target_angle, step_delay=0.02):
     current_angle = servo_motor.angle
     if current_angle is None:
-        current_angle = 90  # Default angle
+        current_angle = 90  # Default to 90 degrees if undefined
+
     step_size = 1 if target_angle > current_angle else -1
     
     while abs(target_angle - current_angle) > abs(step_size):
@@ -32,46 +33,39 @@ def move_servo_smooth(servo_motor, target_angle, step_delay=0.02):
     
     servo_motor.angle = target_angle
 
-# Function to calculate pitch and roll angles to reach the desired z-coordinate
-def calculate_pitch_roll_for_height(z):
-    # Total length from roll to gripper end
-    total_length = link_roll_to_pitch + link_pitch_to_gripper
+# Calculate the pitch angle for the desired z-coordinate (height)
+def calculate_pitch_angle(z):
+    # Ensure the requested z value is achievable within the limits
+    if z > (L4 + L5):
+        print(f"z is too high, max achievable is {L4 + L5} mm.")
+        return None
+    if z < L4:
+        print(f"z is too low, min achievable is {L4} mm.")
+        return None
+    
+    # Calculate the pitch angle using inverse kinematics
+    pitch_angle = math.degrees(math.acos((z - L4) / L5))
+    
+    return pitch_angle
 
-    # z should be less than or equal to the total length
-    if z > total_length:
-        print("Error: The z-coordinate exceeds the maximum reach of the arm.")
-        return None, None
-
-    # Calculate pitch using inverse kinematics (in degrees)
-    theta_pitch = math.acos(z / total_length) * 180 / math.pi
-
-    # Assuming roll remains constant (you can adjust this if needed)
-    theta_roll = 90  # Default roll angle
-
-    return theta_roll, theta_pitch
-
-# Main function to move the gripper to a given height
+# Function to move the arm to a desired z height
 def move_gripper_to_height(z):
-    theta_roll, theta_pitch = calculate_pitch_roll_for_height(z)
+    pitch_angle = calculate_pitch_angle(z)
+    
+    if pitch_angle is not None:
+        print(f"Moving to height: {z} mm, calculated pitch angle: {pitch_angle:.2f} degrees")
+        move_servo_smooth(servo_pitch, pitch_angle)
+        time.sleep(2)
+    else:
+        print("Cannot move to the specified height.")
 
-    if theta_roll is None or theta_pitch is None:
-        return
-
-    print(f"Moving to height: {z} mm")
-    print(f"Calculated roll angle: {theta_roll} degrees")
-    print(f"Calculated pitch angle: {theta_pitch} degrees")
-
-    # Move servos smoothly to the calculated angles
-    move_servo_smooth(servo_roll, theta_roll)
-    move_servo_smooth(servo_pitch, theta_pitch)
-
-# Main loop
-try:
-    z_height = float(input("Enter the desired height (z-coordinate) in mm: "))
-    move_gripper_to_height(z_height)
-except KeyboardInterrupt:
-    print("Program interrupted.")
-except Exception as e:
-    print(f"Error: {e}")
-finally:
-    pca.deinit()  # Safely deinitialize the PCA9685 module
+# Main execution
+if __name__ == "__main__":
+    try:
+        # Example: Move the gripper to a height of 50 mm
+        move_gripper_to_height(50)
+        
+    except KeyboardInterrupt:
+        print("\nProcess interrupted.")
+    finally:
+        pca.deinit()
