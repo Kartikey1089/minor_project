@@ -12,10 +12,10 @@ pca.frequency = 50
 # Initialize the servos
 servo_base = servo.Servo(pca.channels[0])
 servo_shoulder = servo.Servo(pca.channels[1])
-servo_wrist = servo.Servo(pca.channels[2])
-servo_gripper_roll = servo.Servo(pca.channels[3])
-servo_gripper_pitch = servo.Servo(pca.channels[4])
-servo_gripper_open_close = servo.Servo(pca.channels[5])
+servo_wrist = servo.Servo(pca.channels[3])
+servo_gripper_roll = servo.Servo(pca.channels[4])
+servo_gripper_pitch = servo.Servo(pca.channels[6])
+servo_gripper_open_close = servo.Servo(pca.channels[8])
 
 # Function to smoothly move the servo to a target angle
 def move_servo_smooth(servo_motor, target_angle, step_delay=0.02):
