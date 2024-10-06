@@ -1,32 +1,39 @@
 import cv2
 import numpy as np
 
-# Conversion factors
+# Conversion factors (as per the previous calibration)
 PIXELS_PER_MM_X = 3.2  # Pixels per mm in X direction
 PIXELS_PER_MM_Y = 3.2  # Pixels per mm in Y direction
 
-# Function to find contours and calculate centroid
-def get_centroid_and_angle(mask):
+# Function to find contours and calculate the bounding box and area
+def get_bounding_box_and_area(mask):
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if contours:
         largest_contour = max(contours, key=cv2.contourArea)
-        M = cv2.moments(largest_contour)
-        if M["m00"] != 0:
-            cx = int(M["m10"] / M["m00"])
-            cy = int(M["m01"] / M["m00"])
-            
-            rect = cv2.minAreaRect(largest_contour)
-            angle = rect[2]
-            if angle < -45:
-                angle = 90 + angle
-            return (cx, cy), angle
-    return None, None
+        
+        # Get bounding box around the largest contour
+        x, y, w, h = cv2.boundingRect(largest_contour)
+        
+        # Calculate area in pixels
+        area_pixels = w * h
+        
+        # Convert width and height to real-world millimeters
+        width_mm = w / PIXELS_PER_MM_X
+        height_mm = h / PIXELS_PER_MM_Y
+        
+        # Calculate real-world area in square millimeters
+        area_mm2 = width_mm * height_mm
+        
+        return (x, y, w, h), area_pixels, area_mm2
+    return None, None, None
 
 # Define color ranges in HSV
 color_ranges = {
     "red": [(0, 120, 70), (10, 255, 255), (170, 120, 70), (180, 255, 255)],  # Two ranges for red
     "green": [(36, 100, 100), (86, 255, 255)],
-    "blue": [(94, 80, 2), (126, 255, 255)]
+    "blue": [(94, 80, 2), (126, 255, 255)],
+    "brown": [(10, 100, 20), (20, 255, 200)],  # Brown range as discussed earlier
+    "black": [(0, 0, 0), (180, 255, 50)]       # Black range as discussed earlier
 }
 
 # Start video capture
@@ -50,23 +57,24 @@ while True:
         mask = cv2.erode(mask, None, iterations=2)
         mask = cv2.dilate(mask, None, iterations=2)
 
-        (centroid, angle) = get_centroid_and_angle(mask)
+        (bbox, area_pixels, area_mm2) = get_bounding_box_and_area(mask)
 
-        if centroid:
-            cx, cy = centroid
-            
-            # Convert pixel coordinates to millimeters
-            real_x = cx / PIXELS_PER_MM_X
-            real_y = cy / PIXELS_PER_MM_Y
+        if bbox:
+            x, y, w, h = bbox
+            # Draw the bounding box on the frame
+            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
 
-            cv2.circle(frame, (cx, cy), 5, (0, 0, 0), -1)
-            cv2.putText(frame, f"{color.capitalize()} Box: ({real_x:.1f} mm, {real_y:.1f} mm), Angle: {angle:.2f}", 
-                        (cx + 10, cy - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+            # Display the area in both pixels and millimeters squared
+            cv2.putText(frame, f"Area: {area_pixels} px^2 / {area_mm2:.1f} mm^2", 
+                        (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
 
-    cv2.imshow("Box Detection", frame)
+    # Show the frame in a window
+    cv2.imshow("Object Detection with Bounding Box", frame)
 
+    # Press 'q' to quit the loop
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
 
+# Release the camera and close the window
 cap.release()
 cv2.destroyAllWindows()
