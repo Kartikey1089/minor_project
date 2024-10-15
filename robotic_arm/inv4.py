@@ -1,6 +1,8 @@
 import time
 import numpy as np
-from pca9685 import PCA9685  # Ensure you have this library installed
+import board
+import busio
+from adafruit_pca9685 import PCA9685  # Ensure you have this library installed
 
 # Define link lengths (in mm)
 L1 = 40    # Base to Shoulder
@@ -8,14 +10,15 @@ L2 = 140   # Shoulder to Elbow
 L3 = 100   # Elbow to Wrist
 L4 = 140   # Wrist to End of Gripper
 
-# Initialize PCA9685 driver
-pwm = PCA9685()
-pwm.set_pwm_freq(60)  # Set frequency to 60 Hz
+# Initialize I2C bus and PCA9685 driver
+i2c = busio.I2C(board.SCL, board.SDA)
+pwm = PCA9685(i2c)
+pwm.frequency = 60  # Set frequency to 60 Hz
 
 def set_servo_angle(channel, angle):
     pulse_length = 4096  # Full scale for 12-bit resolution
     pulse_width = (angle / 180.0) * pulse_length
-    pwm.set_pwm(channel, 0, int(pulse_width))
+    pwm.channels[channel].duty_cycle = int(pulse_width)
 
 def inverse_kinematics(x, y, z):
     # Calculate the base joint angle (theta_base)
@@ -66,4 +69,6 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("Program interrupted.")
     finally:
-        pwm.set_pwm(0, 0, 0)  # Turn off all servos
+        pwm.channels[0].duty_cycle = 0  # Turn off all servos
+        pwm.channels[1].duty_cycle = 0
+        pwm.channels[2].duty_cycle = 0
