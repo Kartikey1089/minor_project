@@ -1,84 +1,99 @@
-import math
 import time
-import busio
-from board import SCL, SDA
-from adafruit_pca9685 import PCA9685
-
-# I2C bus setup for the PCA9685
-i2c_bus = busio.I2C(SCL, SDA)
-pwm = PCA9685(i2c_bus)
-pwm.frequency = 50
+import numpy as np
+from pca9685 import PCA9685  # Ensure you have this library installed
 
 # Define link lengths (in mm)
-link1 = 137  # Shoulder to Elbow
-link2 = 110  # Elbow to Wrist
-link3 = 30   # Wrist to Roll
-link4 = 30   # Roll to Pitch
-link5 = 120  # Pitch to Gripper end
+L1 = 120  # Base to Shoulder
+L2 = 120  # Shoulder to Elbow
+L3 = 35   # Elbow to Wrist
 
-# Servo smooth movement function
-def smooth_servo_move(servo_channel, start_angle, end_angle, duration=1):
-    steps = 100  # Number of steps for smooth motion
-    for i in range(steps + 1):
-        angle = start_angle + (end_angle - start_angle) * (i / steps)
-        pulse_length = int((angle / 180.0) * (600 - 150) + 150)  # Adjust based on your servos' pulse range
-        pwm.channels[servo_channel].duty_cycle = pulse_length
-        time.sleep(duration / steps)
+# Initialize PCA9685 driver
+pwm = PCA9685()
+pwm.set_pwm_freq(60)  # Set frequency to 60 Hz
 
-# Inverse kinematics calculation for the XZ plane
-def calculate_inverse_kinematics(x, z):
-    # Calculate the distance from shoulder to target point
-    target_dist = math.sqrt(x**2 + z**2)
+# Servo angle limits
+ANGLE_LIMITS = {
+    'base': (0, 180),     # Base motor
+    'shoulder': (40, 150), # Shoulder motor
+    'wrist': (40, 150)    # Wrist motor
+}
 
-    # Ensure the target is reachable
-    if target_dist > (link1 + link2):
-        raise ValueError("Target position out of reach.")
-
-    # Law of cosines for shoulder and wrist angles
-    cos_angle_wrist = (link1**2 + link2**2 - target_dist**2) / (2 * link1 * link2)
-    wrist_angle = math.acos(cos_angle_wrist) * 180 / math.pi
-
-    cos_angle_shoulder = (target_dist**2 + link1**2 - link2**2) / (2 * target_dist * link1)
-    shoulder_angle = math.acos(cos_angle_shoulder) * 180 / math.pi
-
-    # Adjust shoulder angle based on target height (z)
-    shoulder_angle = math.degrees(math.atan2(z, x)) - shoulder_angle
-
-    return shoulder_angle, wrist_angle
-
-# Update current angles
-current_shoulder_angle = 90
-current_wrist_angle = 90
-
-# Move arm function
-def move_arm_to_position(x, z):
-    global current_shoulder_angle, current_wrist_angle
+def set_servo_angle(channel, angle):
+    # Limit the angle within bounds
+    if angle < ANGLE_LIMITS['shoulder'][0]:
+        angle = ANGLE_LIMITS['shoulder'][0]
+    elif angle > ANGLE_LIMITS['shoulder'][1]:
+        angle = ANGLE_LIMITS['shoulder'][1]
     
-    try:
-        shoulder_angle, wrist_angle = calculate_inverse_kinematics(x, z)
+    # Map angle to PWM pulse width
+    pulse_length = 4096  # Full scale for 12-bit resolution
+    pulse_width = int((angle / 180.0) * pulse_length)
+    pwm.set_pwm(channel, 0, pulse_width)
 
-        # Check angle limits
-        if shoulder_angle < 40 or shoulder_angle > 150:
-            raise ValueError("Shoulder angle out of bounds (40-150 degrees).")
-        if wrist_angle < 40 or wrist_angle > 150:
-            raise ValueError("Wrist angle out of bounds (40-150 degrees).")
-        if z < 50:
-            raise ValueError("Z coordinate too low (minimum 50mm height).")
+def smooth_movement(current_angle, target_angle, speed=1):
+    # Function to move the servos smoothly from current_angle to target_angle
+    step = speed if target_angle > current_angle else -speed
+    for angle in range(int(current_angle), int(target_angle), step):
+        yield angle
+        time.sleep(0.01)  # Small delay for smooth transition
 
-        # Smoothly move servos
-        smooth_servo_move(0, current_shoulder_angle, shoulder_angle)
-        smooth_servo_move(1, current_wrist_angle, wrist_angle)
+def inverse_kinematics(x, y, z):
+    # Calculate the base joint angle (thetal)
+    thetal = np.arctan2(y, x)
 
-        # Update current angles
-        current_shoulder_angle = shoulder_angle
-        current_wrist_angle = wrist_angle
+    # Calculate the distance r from the base to the projection of point P on the XY plane
+    r = np.sqrt(x**2 + y**2)
 
-    except ValueError as e:
-        print(f"Error: {e}")
+    # Calculate the distance d (hypotenuse in the triangle formed)
+    d = np.sqrt(r**2 + (z - L1)**2)
 
-# Main code to input target position
+    # Calculate theta2 (shoulder joint angle)
+    A = (L1**2 + L2**2 - d**2) / (2 * L1 * L2)
+    theta2 = np.arccos(A)
+
+    # Calculate theta3 (elbow joint angle)
+    B = (L1**2 + d**2 - L2**2) / (2 * L1 * d)
+    theta3 = np.arccos(B)
+
+    # Calculate the angle for the wrist (theta)
+    thetae = np.arctan2(z - L1, r)
+
+    return np.degrees(thetae), np.degrees(thetal), np.degrees(theta2), np.degrees(theta3)
+
+def move_to_coordinates(x, y, z):
+    # Calculate joint angles for the desired coordinates
+    thetae, thetal, theta2, theta3 = inverse_kinematics(x, y, z)
+
+    # Get current angles for smooth movement (this would require tracking current angles)
+    current_base_angle = 90  # Set a default or track from actual movement
+    current_shoulder_angle = 90  # Default or actual
+    current_wrist_angle = 90  # Default or actual
+
+    # Move base motor smoothly
+    for angle in smooth_movement(current_base_angle, thetal):
+        set_servo_angle(0, angle)
+
+    # Move shoulder motor smoothly
+    for angle in smooth_movement(current_shoulder_angle, theta2):
+        set_servo_angle(1, angle)
+
+    # Move wrist motor smoothly
+    for angle in smooth_movement(current_wrist_angle, theta3):
+        set_servo_angle(2, angle)
+
+# Example usage
 if __name__ == "__main__":
-    while True:
-        x = float(input("Enter target X coordinate: "))
-        z = float(input("Enter target Z coordinate: "))
-        move_arm_to_position(x, z)
+    try:
+        # Move the robotic arm to specified coordinates
+        target_x = 140  # Replace with your target X coordinate
+        target_y = 100  # Replace with your target Y coordinate
+        target_z = 70   # Replace with your target Z coordinate
+
+        move_to_coordinates(target_x, target_y, target_z)
+
+        time.sleep(2)  # Wait for 2 seconds to observe the position
+
+    except KeyboardInterrupt:
+        print("Program interrupted.")
+    finally:
+        pwm.set_pwm(0, 0, 0)  # Turn off all servos
