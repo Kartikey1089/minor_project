@@ -1,15 +1,22 @@
 import time
 import numpy as np
-from pca9685 import PCA9685  # Ensure you have this library installed
+import busio
+import board
+from adafruit_pca9685 import PCA9685
+from adafruit_motor import servo
 
 # Define link lengths (in mm)
 L1 = 120  # Base to Shoulder
 L2 = 120  # Shoulder to Elbow
 L3 = 35   # Elbow to Wrist
 
-# Initialize PCA9685 driver
-pwm = PCA9685()
-pwm.set_pwm_freq(60)  # Set frequency to 60 Hz
+# Initialize I2C bus and PCA9685
+i2c = busio.I2C(board.SCL, board.SDA)
+pca = PCA9685(i2c)
+pca.frequency = 60  # Set frequency to 60 Hz
+
+# Initialize servos (assuming 6 channels for 6 motors)
+servos = [servo.Servo(pca.channels[i]) for i in range(6)]
 
 # Servo angle limits
 ANGLE_LIMITS = {
@@ -20,15 +27,10 @@ ANGLE_LIMITS = {
 
 def set_servo_angle(channel, angle):
     # Limit the angle within bounds
-    if angle < ANGLE_LIMITS['shoulder'][0]:
-        angle = ANGLE_LIMITS['shoulder'][0]
-    elif angle > ANGLE_LIMITS['shoulder'][1]:
-        angle = ANGLE_LIMITS['shoulder'][1]
+    angle = max(ANGLE_LIMITS['shoulder'][0], min(angle, ANGLE_LIMITS['shoulder'][1]))
     
-    # Map angle to PWM pulse width
-    pulse_length = 4096  # Full scale for 12-bit resolution
-    pulse_width = int((angle / 180.0) * pulse_length)
-    pwm.set_pwm(channel, 0, pulse_width)
+    # Set the servo angle
+    servos[channel].angle = angle
 
 def smooth_movement(current_angle, target_angle, speed=1):
     # Function to move the servos smoothly from current_angle to target_angle
@@ -96,4 +98,6 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("Program interrupted.")
     finally:
-        pwm.set_pwm(0, 0, 0)  # Turn off all servos
+        # Turn off all servos
+        for i in range(6):
+            servos[i].angle = None
